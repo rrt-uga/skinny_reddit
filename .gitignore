@@ -6,10 +6,8 @@ yarn-error.log*
 
 # Build outputs
 dist/
-build/
 webroot/
-.next/
-out/
+build/
 
 # Environment variables
 .env
@@ -23,16 +21,14 @@ out/
 .idea/
 *.swp
 *.swo
-*~
 
-# OS generated files
+# OS files
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
+
+# Devvit specific
+.devvit/
+.initialized
 
 # Logs
 logs
@@ -46,13 +42,9 @@ pids
 
 # Coverage directory used by tools like istanbul
 coverage/
-*.lcov
 
-# nyc test coverage
-.nyc_output
-
-# Dependency directories
-jspm_packages/
+# TypeScript cache
+*.tsbuildinfo
 
 # Optional npm cache directory
 .npm
@@ -79,12 +71,20 @@ jspm_packages/
 .cache
 .parcel-cache
 
-# Stores VSCode versions used for testing VSCode extensions
-.vscode-test
+# Next.js build output
+.next
 
-# Devvit specific
-.devvit/
-.initialized
+# Nuxt.js build / generate output
+.nuxt
 
-# TypeScript build info
-*.tsbuildinfo
+# Gatsby files
+.cache/
+public
+
+# Storybook build outputs
+.out
+.storybook-out
+
+# Temporary folders
+tmp/
+temp/
