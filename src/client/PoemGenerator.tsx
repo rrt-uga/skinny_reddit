@@ -6,6 +6,22 @@ import { PoemDisplay } from './components/PoemDisplay';
 import { AdminControls } from './components/AdminControls';
 import packageJson from '../../package.json';
 
+// Message types for webview communication
+type WebviewMessage = 
+  | { type: 'GET_POEM_STATE' }
+  | { type: 'VOTE'; data: VoteRequest }
+  | { type: 'GENERATE_POEM' }
+  | { type: 'ADMIN_SIMULATE' }
+  | { type: 'GET_DAILY_POEM'; date?: string };
+
+type WebviewResponse = 
+  | { type: 'POEM_STATE_RESPONSE'; data: PoemState }
+  | { type: 'VOTE_RESPONSE'; success: boolean; message?: string; data?: PoemState }
+  | { type: 'GENERATE_RESPONSE'; success: boolean; message?: string; poem?: SkinnyPoem }
+  | { type: 'SIMULATE_RESPONSE'; success: boolean; message?: string; data?: PoemState }
+  | { type: 'DAILY_POEM_RESPONSE'; success: boolean; poem?: SkinnyPoem; message?: string }
+  | { type: 'ERROR'; message: string };
+
 function extractSubredditName(): string | null {
   const devCommand = packageJson.scripts && packageJson.scripts['dev:devvit'];
   if (!devCommand || !devCommand.includes('devvit playtest')) return null;
@@ -77,10 +93,13 @@ export const PoemGenerator: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [showBanner, setShowBanner] = useState(false);
+  const [isWebviewMode, setIsWebviewMode] = useState(false);
 
   useEffect(() => {
     const hostname = window.location.hostname;
-    setShowBanner(!hostname.endsWith('devvit.net'));
+    const isDevvitWebview = hostname.endsWith('devvit.net') || window.parent !== window;
+    setIsWebviewMode(isDevvitWebview);
+    setShowBanner(!isDevvitWebview);
   }, []);
 
   const showMessage = useCallback((msg: string, time = 3000) => {
@@ -90,9 +109,38 @@ export const PoemGenerator: React.FC = () => {
     }
   }, []);
 
-  const fetchPoemState = useCallback(async () => {
+  // Webview message handling
+  const sendWebviewMessage = useCallback((message: WebviewMessage): Promise<WebviewResponse> => {
+    return new Promise((resolve, reject) => {
+      if (!isWebviewMode || !window.parent) {
+        reject(new Error('Not in webview mode'));
+        return;
+      }
+
+      const messageId = Math.random().toString(36).substr(2, 9);
+      const messageWithId = { ...message, messageId };
+
+      const handleResponse = (event: MessageEvent) => {
+        if (event.data && event.data.messageId === messageId) {
+          window.removeEventListener('message', handleResponse);
+          resolve(event.data as WebviewResponse);
+        }
+      };
+
+      window.addEventListener('message', handleResponse);
+      window.parent.postMessage(messageWithId, '*');
+
+      // Timeout after 10 seconds
+      setTimeout(() => {
+        window.removeEventListener('message', handleResponse);
+        reject(new Error('Webview message timeout'));
+      }, 10000);
+    });
+  }, [isWebviewMode]);
+
+  // Fallback HTTP API calls for development
+  const fetchPoemStateHTTP = useCallback(async () => {
     try {
-      // Add health check first
       const healthResponse = await fetch('/api/health');
       if (!healthResponse.ok) {
         throw new Error('Server not responding');
@@ -130,88 +178,157 @@ export const PoemGenerator: React.FC = () => {
     }
   }, [showMessage]);
 
+  // Main fetch function that chooses between webview and HTTP
+  const fetchPoemState = useCallback(async () => {
+    if (isWebviewMode) {
+      try {
+        const response = await sendWebviewMessage({ type: 'GET_POEM_STATE' });
+        if (response.type === 'POEM_STATE_RESPONSE') {
+          setPoemState(response.data);
+        } else if (response.type === 'ERROR') {
+          showMessage(response.message);
+        }
+      } catch (error) {
+        console.error('Webview error, falling back to HTTP:', error);
+        await fetchPoemStateHTTP();
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      await fetchPoemStateHTTP();
+    }
+  }, [isWebviewMode, sendWebviewMessage, fetchPoemStateHTTP, showMessage]);
+
   const handleVote = async (voteData: VoteRequest) => {
-    try {
-      const response = await fetch('/api/poem/vote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(voteData)
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    if (isWebviewMode) {
+      try {
+        const response = await sendWebviewMessage({ type: 'VOTE', data: voteData });
+        if (response.type === 'VOTE_RESPONSE' && response.success) {
+          if (response.data) setPoemState(response.data);
+          showMessage(response.message || 'Vote submitted successfully!');
+        } else if (response.type === 'ERROR') {
+          showMessage(response.message);
+        }
+      } catch (error) {
+        console.error('Webview vote error:', error);
+        showMessage('Error submitting vote via webview');
       }
-      
-      const result = await response.json();
-      
-      if (result.status === 'success') {
-        setPoemState(result.currentState);
-        showMessage('Vote submitted successfully!');
-      } else {
-        showMessage(result.message || 'Failed to submit vote');
-      }
-    } catch (error) {
-      console.error('Error voting:', error);
-      if (error instanceof Error) {
-        showMessage(`Error submitting vote: ${error.message}`);
-      } else {
-        showMessage('Network error submitting vote');
+    } else {
+      // Fallback HTTP implementation
+      try {
+        const response = await fetch('/api/poem/vote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(voteData)
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+          setPoemState(result.currentState);
+          showMessage('Vote submitted successfully!');
+        } else {
+          showMessage(result.message || 'Failed to submit vote');
+        }
+      } catch (error) {
+        console.error('Error voting:', error);
+        if (error instanceof Error) {
+          showMessage(`Error submitting vote: ${error.message}`);
+        } else {
+          showMessage('Network error submitting vote');
+        }
       }
     }
   };
 
   const handleGenerate = async () => {
-    try {
-      const response = await fetch('/api/poem/generate', {
-        method: 'POST'
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    if (isWebviewMode) {
+      try {
+        const response = await sendWebviewMessage({ type: 'GENERATE_POEM' });
+        if (response.type === 'GENERATE_RESPONSE' && response.success) {
+          showMessage('Poem generated successfully!');
+          await fetchPoemState(); // Refresh state
+        } else if (response.type === 'ERROR') {
+          showMessage(response.message);
+        }
+      } catch (error) {
+        console.error('Webview generate error:', error);
+        showMessage('Error generating poem via webview');
       }
-      
-      const result = await response.json();
-      
-      if (result.status === 'success') {
-        showMessage('Poem generated successfully!');
-        await fetchPoemState(); // Refresh state
-      } else {
-        showMessage(result.message || 'Failed to generate poem');
-      }
-    } catch (error) {
-      console.error('Error generating poem:', error);
-      if (error instanceof Error) {
-        showMessage(`Error generating poem: ${error.message}`);
-      } else {
-        showMessage('Network error generating poem');
+    } else {
+      // Fallback HTTP implementation
+      try {
+        const response = await fetch('/api/poem/generate', {
+          method: 'POST'
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+          showMessage('Poem generated successfully!');
+          await fetchPoemState(); // Refresh state
+        } else {
+          showMessage(result.message || 'Failed to generate poem');
+        }
+      } catch (error) {
+        console.error('Error generating poem:', error);
+        if (error instanceof Error) {
+          showMessage(`Error generating poem: ${error.message}`);
+        } else {
+          showMessage('Network error generating poem');
+        }
       }
     }
   };
 
   const handleAdminSimulate = async () => {
-    try {
-      const response = await fetch('/api/poem/admin/simulate', {
-        method: 'POST'
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    if (isWebviewMode) {
+      try {
+        const response = await sendWebviewMessage({ type: 'ADMIN_SIMULATE' });
+        if (response.type === 'SIMULATE_RESPONSE' && response.success) {
+          if (response.data) setPoemState(response.data);
+          showMessage(response.message || 'Phase simulated successfully!');
+        } else if (response.type === 'ERROR') {
+          showMessage(response.message);
+        }
+      } catch (error) {
+        console.error('Webview simulate error:', error);
+        showMessage('Error simulating phase via webview');
       }
-      
-      const result = await response.json();
-      
-      if (result.status === 'success') {
-        setPoemState(result.newState);
-        showMessage(result.message || 'Phase simulated successfully!');
-      } else {
-        showMessage(result.message || 'Failed to simulate phase');
-      }
-    } catch (error) {
-      console.error('Error simulating phase:', error);
-      if (error instanceof Error) {
-        showMessage(`Error simulating phase: ${error.message}`);
-      } else {
-        showMessage('Network error simulating phase');
+    } else {
+      // Fallback HTTP implementation
+      try {
+        const response = await fetch('/api/poem/admin/simulate', {
+          method: 'POST'
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+          setPoemState(result.newState);
+          showMessage(result.message || 'Phase simulated successfully!');
+        } else {
+          showMessage(result.message || 'Failed to simulate phase');
+        }
+      } catch (error) {
+        console.error('Error simulating phase:', error);
+        if (error instanceof Error) {
+          showMessage(`Error simulating phase: ${error.message}`);
+        } else {
+          showMessage('Network error simulating phase');
+        }
       }
     }
   };
@@ -281,6 +398,11 @@ export const PoemGenerator: React.FC = () => {
             {getPhaseDescription(poemState.phase)}
           </p>
           <PhaseTimer endTime={poemState.phaseEndTime} />
+          {isWebviewMode && (
+            <div className="text-xs text-green-400 mb-2">
+              ✓ Running in Devvit webview mode
+            </div>
+          )}
         </header>
 
         <div className="bg-black bg-opacity-30 rounded-xl p-6 backdrop-blur-sm">

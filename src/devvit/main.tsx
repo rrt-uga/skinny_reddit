@@ -1,4 +1,5 @@
 import { Devvit } from '@devvit/public-api';
+import { handlePoemMessage, PoemMessage, PoemResponse } from './poem-handlers';
 
 // Side effect import to bundle the server
 import '../server/index';
@@ -38,7 +39,7 @@ Devvit.addCustomPostType({
     const { useState, useAsync } = context;
 
     const { data, loading, error } = useAsync(async () => {
-      // Pass context data to the webview
+      // Initialize webview data
       return {
         url: 'index.html',
         data: { 
@@ -48,6 +49,24 @@ Devvit.addCustomPostType({
         }
       };
     });
+
+    // Handle messages from webview
+    const onMessage = async (msg: PoemMessage) => {
+      try {
+        console.log('Received webview message:', msg);
+        const response: PoemResponse = await handlePoemMessage(msg, context);
+        
+        // Send response back to webview
+        context.ui.webView.postMessage('poem-generator', response);
+      } catch (error) {
+        console.error('Error handling webview message:', error);
+        const errorResponse: PoemResponse = {
+          type: 'ERROR',
+          message: error instanceof Error ? error.message : 'Unknown error'
+        };
+        context.ui.webView.postMessage('poem-generator', errorResponse);
+      }
+    };
 
     if (loading) {
       return <Preview text="Loading Poem Generator..." />;
@@ -64,9 +83,7 @@ Devvit.addCustomPostType({
           url={data?.url || 'index.html'}
           width="100%"
           height="100%"
-          onMessage={(msg) => {
-            console.log('Webview message:', msg);
-          }}
+          onMessage={onMessage}
         />
       </vstack>
     );
