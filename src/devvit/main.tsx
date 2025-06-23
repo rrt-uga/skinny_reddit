@@ -36,12 +36,16 @@ Devvit.addCustomPostType({
   height: 'tall',
   render: (context) => {
     const { useState, useAsync } = context;
-    const [webviewVisible, setWebviewVisible] = useState(false);
 
     const { data, loading, error } = useAsync(async () => {
+      // Pass context data to the webview
       return {
         url: 'index.html',
-        data: { postId: context.postId }
+        data: { 
+          postId: context.postId,
+          userId: context.userId,
+          subredditName: context.subredditName
+        }
       };
     });
 
@@ -60,6 +64,9 @@ Devvit.addCustomPostType({
           url={data?.url || 'index.html'}
           width="100%"
           height="100%"
+          onMessage={(msg) => {
+            console.log('Webview message:', msg);
+          }}
         />
       </vstack>
     );
