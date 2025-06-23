@@ -1,26 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { PoemState, VoteRequest, SkinnyPoem } from '../shared/types/poem';
+import { PoemState, VoteRequest, SkinnyPoem, WebviewMessage, WebviewResponse } from '../shared/types/poem';
 import { VotingPhase } from './components/VotingPhase';
 import { MoodVoting } from './components/MoodVoting';
 import { PoemDisplay } from './components/PoemDisplay';
 import { AdminControls } from './components/AdminControls';
 import packageJson from '../../package.json';
-
-// Message types for webview communication
-type WebviewMessage = 
-  | { type: 'GET_POEM_STATE' }
-  | { type: 'VOTE'; data: VoteRequest }
-  | { type: 'GENERATE_POEM' }
-  | { type: 'ADMIN_SIMULATE' }
-  | { type: 'GET_DAILY_POEM'; date?: string };
-
-type WebviewResponse = 
-  | { type: 'POEM_STATE_RESPONSE'; data: PoemState }
-  | { type: 'VOTE_RESPONSE'; success: boolean; message?: string; data?: PoemState }
-  | { type: 'GENERATE_RESPONSE'; success: boolean; message?: string; poem?: SkinnyPoem }
-  | { type: 'SIMULATE_RESPONSE'; success: boolean; message?: string; data?: PoemState }
-  | { type: 'DAILY_POEM_RESPONSE'; success: boolean; poem?: SkinnyPoem; message?: string }
-  | { type: 'ERROR'; message: string };
 
 function extractSubredditName(): string | null {
   const devCommand = packageJson.scripts && packageJson.scripts['dev:devvit'];
@@ -138,47 +122,83 @@ export const PoemGenerator: React.FC = () => {
     });
   }, [isWebviewMode]);
 
-  // Fallback HTTP API calls for development
-  const fetchPoemStateHTTP = useCallback(async () => {
-    try {
-      const healthResponse = await fetch('/api/health');
-      if (!healthResponse.ok) {
-        throw new Error('Server not responding');
-      }
+  // Fallback for development mode
+  const createMockPoemState = (): PoemState => {
+    const now = new Date();
+    const hour = now.getHours();
+    
+    let phase: 'keyline' | 'keyword' | 'mood' | 'generation' | 'published' = 'keyline';
+    if (hour >= 12 && hour < 16) phase = 'keyword';
+    else if (hour >= 16 && hour < 20) phase = 'mood';
+    else if (hour >= 20 && hour < 21) phase = 'generation';
+    else if (hour >= 21) phase = 'published';
 
-      const response = await fetch('/api/poem/state');
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        console.error('Non-JSON response:', text.substring(0, 200));
-        throw new Error('Server returned non-JSON response');
-      }
-      
-      const result = await response.json();
-      
-      if (result.status === 'success') {
-        setPoemState(result.currentState);
-      } else {
-        showMessage(result.message || 'Failed to load poem state');
-      }
-    } catch (error) {
-      console.error('Error fetching poem state:', error);
-      if (error instanceof Error) {
-        showMessage(`Network error: ${error.message}`);
-      } else {
-        showMessage('Network error loading poem state');
-      }
-    } finally {
-      setLoading(false);
+    const mockKeyLineOptions = [
+      { id: 'keyline_0', text: 'In the silence between heartbeats,', votes: 3 },
+      { id: 'keyline_1', text: 'Where shadows dance with light—', votes: 7 },
+      { id: 'keyline_2', text: 'Through the whispers of time:', votes: 2 },
+      { id: 'keyline_3', text: 'Beyond the edge of dreams;', votes: 5 },
+      { id: 'keyline_4', text: 'In the space where words fail,', votes: 1 }
+    ];
+
+    const mockKeyWordOptions = [
+      { id: 'keyword_0', text: 'shadow', votes: 4 },
+      { id: 'keyword_1', text: 'light', votes: 8 },
+      { id: 'keyword_2', text: 'whisper', votes: 3 },
+      { id: 'keyword_3', text: 'dance', votes: 6 },
+      { id: 'keyword_4', text: 'silence', votes: 2 }
+    ];
+
+    const mockMoodVariables = {
+      melancholy: { name: 'melancholy', value: 6.2, votes: 5 },
+      joy: { name: 'joy', value: 4.8, votes: 3 },
+      mystery: { name: 'mystery', value: 7.5, votes: 8 },
+      passion: { name: 'passion', value: 5.1, votes: 4 },
+      serenity: { name: 'serenity', value: 8.2, votes: 6 },
+      rebellion: { name: 'rebellion', value: 3.4, votes: 2 },
+      nostalgia: { name: 'nostalgia', value: 6.8, votes: 7 },
+      hope: { name: 'hope', value: 7.1, votes: 5 },
+      darkness: { name: 'darkness', value: 4.5, votes: 3 },
+      whimsy: { name: 'whimsy', value: 5.9, votes: 4 }
+    };
+
+    const today = new Date();
+    const endTime = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    
+    let phaseEndTime: number;
+    switch (phase) {
+      case 'keyline': phaseEndTime = endTime.getTime() + 12 * 60 * 60 * 1000; break;
+      case 'keyword': phaseEndTime = endTime.getTime() + 16 * 60 * 60 * 1000; break;
+      case 'mood': phaseEndTime = endTime.getTime() + 20 * 60 * 60 * 1000; break;
+      case 'generation': phaseEndTime = endTime.getTime() + 21 * 60 * 60 * 1000; break;
+      default: phaseEndTime = endTime.getTime() + 24 * 60 * 60 * 1000;
     }
-  }, [showMessage]);
 
-  // Main fetch function that chooses between webview and HTTP
+    return {
+      phase,
+      currentDay: now.toISOString().split('T')[0],
+      keyLineOptions: mockKeyLineOptions,
+      keyWordOptions: phase === 'keyline' ? [] : mockKeyWordOptions,
+      selectedKeyLine: phase !== 'keyline' ? 'Where shadows dance with light—' : undefined,
+      selectedKeyWord: ['mood', 'generation', 'published'].includes(phase) ? 'light' : undefined,
+      moodVariables: mockMoodVariables,
+      phaseEndTime,
+      generatedPoem: phase === 'published' ? {
+        keyLine: 'Where shadows dance with light—',
+        keyWord: 'light,',
+        line3: 'whisper',
+        line4: 'through;',
+        line5: 'memory,',
+        line7: 'beneath',
+        line8: 'gentle—',
+        line10: 'eternal',
+        mood: { melancholy: 6.2, joy: 4.8, mystery: 7.5, passion: 5.1, serenity: 8.2, rebellion: 3.4, nostalgia: 6.8, hope: 7.1, darkness: 4.5, whimsy: 5.9 },
+        createdAt: new Date().toISOString()
+      } : undefined
+    };
+  };
+
+  // Main fetch function
   const fetchPoemState = useCallback(async () => {
     if (isWebviewMode) {
       try {
@@ -187,17 +207,21 @@ export const PoemGenerator: React.FC = () => {
           setPoemState(response.data);
         } else if (response.type === 'ERROR') {
           showMessage(response.message);
+          // Fallback to mock data
+          setPoemState(createMockPoemState());
         }
       } catch (error) {
-        console.error('Webview error, falling back to HTTP:', error);
-        await fetchPoemStateHTTP();
+        console.error('Webview error, using mock data:', error);
+        setPoemState(createMockPoemState());
       } finally {
         setLoading(false);
       }
     } else {
-      await fetchPoemStateHTTP();
+      // Development mode - use mock data
+      setPoemState(createMockPoemState());
+      setLoading(false);
     }
-  }, [isWebviewMode, sendWebviewMessage, fetchPoemStateHTTP, showMessage]);
+  }, [isWebviewMode, sendWebviewMessage, showMessage]);
 
   const handleVote = async (voteData: VoteRequest) => {
     if (isWebviewMode) {
@@ -214,34 +238,8 @@ export const PoemGenerator: React.FC = () => {
         showMessage('Error submitting vote via webview');
       }
     } else {
-      // Fallback HTTP implementation
-      try {
-        const response = await fetch('/api/poem/vote', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(voteData)
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const result = await response.json();
-        
-        if (result.status === 'success') {
-          setPoemState(result.currentState);
-          showMessage('Vote submitted successfully!');
-        } else {
-          showMessage(result.message || 'Failed to submit vote');
-        }
-      } catch (error) {
-        console.error('Error voting:', error);
-        if (error instanceof Error) {
-          showMessage(`Error submitting vote: ${error.message}`);
-        } else {
-          showMessage('Network error submitting vote');
-        }
-      }
+      // Development mode - simulate vote
+      showMessage('Vote submitted (development mode)');
     }
   };
 
@@ -251,7 +249,7 @@ export const PoemGenerator: React.FC = () => {
         const response = await sendWebviewMessage({ type: 'GENERATE_POEM' });
         if (response.type === 'GENERATE_RESPONSE' && response.success) {
           showMessage('Poem generated successfully!');
-          await fetchPoemState(); // Refresh state
+          await fetchPoemState();
         } else if (response.type === 'ERROR') {
           showMessage(response.message);
         }
@@ -260,32 +258,11 @@ export const PoemGenerator: React.FC = () => {
         showMessage('Error generating poem via webview');
       }
     } else {
-      // Fallback HTTP implementation
-      try {
-        const response = await fetch('/api/poem/generate', {
-          method: 'POST'
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const result = await response.json();
-        
-        if (result.status === 'success') {
-          showMessage('Poem generated successfully!');
-          await fetchPoemState(); // Refresh state
-        } else {
-          showMessage(result.message || 'Failed to generate poem');
-        }
-      } catch (error) {
-        console.error('Error generating poem:', error);
-        if (error instanceof Error) {
-          showMessage(`Error generating poem: ${error.message}`);
-        } else {
-          showMessage('Network error generating poem');
-        }
-      }
+      // Development mode - simulate generation
+      showMessage('Poem generated (development mode)');
+      const newState = createMockPoemState();
+      newState.phase = 'published';
+      setPoemState(newState);
     }
   };
 
@@ -304,31 +281,26 @@ export const PoemGenerator: React.FC = () => {
         showMessage('Error simulating phase via webview');
       }
     } else {
-      // Fallback HTTP implementation
-      try {
-        const response = await fetch('/api/poem/admin/simulate', {
-          method: 'POST'
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      // Development mode - simulate phase change
+      if (poemState) {
+        const newState = { ...poemState };
+        switch (newState.phase) {
+          case 'keyline':
+            newState.phase = 'keyword';
+            newState.selectedKeyLine = 'Where shadows dance with light—';
+            break;
+          case 'keyword':
+            newState.phase = 'mood';
+            newState.selectedKeyWord = 'light';
+            break;
+          case 'mood':
+            newState.phase = 'generation';
+            break;
+          default:
+            break;
         }
-        
-        const result = await response.json();
-        
-        if (result.status === 'success') {
-          setPoemState(result.newState);
-          showMessage(result.message || 'Phase simulated successfully!');
-        } else {
-          showMessage(result.message || 'Failed to simulate phase');
-        }
-      } catch (error) {
-        console.error('Error simulating phase:', error);
-        if (error instanceof Error) {
-          showMessage(`Error simulating phase: ${error.message}`);
-        } else {
-          showMessage('Network error simulating phase');
-        }
+        setPoemState(newState);
+        showMessage('Phase simulated (development mode)');
       }
     }
   };
@@ -401,6 +373,11 @@ export const PoemGenerator: React.FC = () => {
           {isWebviewMode && (
             <div className="text-xs text-green-400 mb-2">
               ✓ Running in Devvit webview mode
+            </div>
+          )}
+          {!isWebviewMode && (
+            <div className="text-xs text-yellow-400 mb-2">
+              ⚠ Development mode - using mock data
             </div>
           )}
         </header>

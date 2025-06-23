@@ -44,20 +44,18 @@ export type VoteRequest = {
   moodValues?: Record<string, number>;
 };
 
-export type VoteResponse = {
-  status: 'success' | 'error';
-  message?: string;
-  currentState?: PoemState;
-};
+// Webview message types
+export type WebviewMessage = 
+  | { type: 'GET_POEM_STATE'; messageId?: string }
+  | { type: 'VOTE'; data: VoteRequest; messageId?: string }
+  | { type: 'GENERATE_POEM'; messageId?: string }
+  | { type: 'ADMIN_SIMULATE'; messageId?: string }
+  | { type: 'GET_DAILY_POEM'; date?: string; messageId?: string };
 
-export type GeneratePoemResponse = {
-  status: 'success' | 'error';
-  poem?: SkinnyPoem;
-  message?: string;
-};
-
-export type AdminActionResponse = {
-  status: 'success' | 'error';
-  message?: string;
-  newState?: PoemState;
-};
+export type WebviewResponse = 
+  | { type: 'POEM_STATE_RESPONSE'; data: PoemState; messageId?: string }
+  | { type: 'VOTE_RESPONSE'; success: boolean; message?: string; data?: PoemState; messageId?: string }
+  | { type: 'GENERATE_RESPONSE'; success: boolean; message?: string; poem?: SkinnyPoem; messageId?: string }
+  | { type: 'SIMULATE_RESPONSE'; success: boolean; message?: string; data?: PoemState; messageId?: string }
+  | { type: 'DAILY_POEM_RESPONSE'; success: boolean; poem?: SkinnyPoem; message?: string; messageId?: string }
+  | { type: 'ERROR'; message: string; messageId?: string };
