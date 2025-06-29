@@ -1,66 +1,51 @@
-## Devvit Bolt Starter Experimental
+# Reddit Vibepoem - Devvit App
 
-An experimental starter that explores a new way to build applications on Reddit's developer platform.
+A collaborative poetry creation app built for Reddit using Devvit. Community members work together throughout the day to create a unique "skinny poem" through voting and mood setting.
 
-## Video Tutorial
+## How It Works
 
-[![Video Tutorial](docs-img/video-preview.png)](https://www.youtube.com/watch?v=uI85NRCoQNU)
+The app runs on a daily cycle with four phases:
 
-## Getting Started
+1. **Key Line Voting (8AM-12PM)**: Community votes on the opening/closing line
+2. **Key Word Voting (12PM-4PM)**: Community selects the recurring key word
+3. **Mood Setting (4PM-8PM)**: Users adjust emotional variables
+4. **Generation (8PM-9PM)**: The poem is automatically generated
+5. **Published**: The completed poem is displayed
 
-This template is made specifically to work with **Bolt.new**.
-Click the button below to open this template directly in Bolt:
+## Features
 
-<a href="https://bolt.new/github.com/reddit/devvit-bolt-starter-experimental"><img src="docs-img/open-in-bolt-2x.png" heigh="36px" width="199px" alt="Open in Bolt"></a>
+- **Daily Collaborative Process**: Each day brings a new poem creation cycle
+- **Community Voting**: Democratic selection of poem elements
+- **Mood Variables**: 10 different emotional dimensions to influence the poem
+- **Automatic Generation**: AI-powered poem assembly using community inputs
+- **Redis Storage**: Persistent state management across sessions
+- **Phase Timing**: Automatic progression through daily phases
 
-As soon as the project is checked out you will get the following errors.
-**This is expected**!
+## Installation
 
-```
-❌  Authentication: Please run `npm run login` to authenticate with Reddit
-❌  App initialization: Please run `npm run devvit:init` to setup your app remotely
-❌  Playtest subreddit: Please update YOUR_SUBREDDIT_NAME in the dev:devvit script in package.json
-```
+1. Clone this repository
+2. Run `npm install`
+3. Run `devvit login` to authenticate
+4. Run `devvit upload` to deploy to Reddit
 
-### Step 1: Login
+## Usage
 
-In bolt terminal, run
+Moderators can create new poem generator posts using the "Create Poem Generator" menu option in their subreddit. Community members can then participate by voting and setting moods during the appropriate time phases.
 
-```
-npm run login
-```
+## Development
 
-This will authenticate with Reddit. You will be prompted to follow a link and paste an authentication code.
-Paste that authentication code in your **terminal window** in Bolt, then press `<Enter>`.
+- `npm run dev` - Start development server
+- `npm run build` - Build the app
+- `npm run upload` - Upload to Reddit
+- `npm run check` - Run type checking and linting
 
-### Step 2: App Initialization
+## Architecture
 
-In bolt terminal, run
+This is a pure Devvit application that runs entirely within Reddit's infrastructure:
 
-```
-npm run devvit:init
-```
+- **Frontend**: Devvit blocks-based UI
+- **Backend**: Devvit serverless functions
+- **Storage**: Redis for state persistence
+- **Authentication**: Reddit's built-in user system
 
-This will get your app set up with Devvit. You will be prompted to follow a link and paste an authentication code. Paste that authentication code in your **terminal window** in Bolt, then press `<Enter>`.
-
-### Step 3: Playtest subreddit
-
-For this step, you will need to go to Reddit and create an empty subreddit for you to test your app.
-
-You can do this by following going to [Reddit](https://www.reddit.com) and clicking the **"Create a Community"** button in the left-side navigation. Once you create your community, paste the name of the subreddit (for example if you community is reddit.com/r/my_test_subreddit, you will paste `my_test_subreddit`) into the `package.json` file, replacing the string `YOUR_SUBREDDIT_NAME`.
-
-After that, if you run `npm run dev` again, all checks should pass and you should be able to test your application on Reddit.
-
-### Step 4: Testing your app
-
-Once the initial configuration is done, you can test your application by navigating to your test subreddit, clicking the three dots icon on the top-right and creating a new post. The command will be called `[Bolt Word Guesser] New Post`. Once you create a new post you can go back and forth with Bolt by prompting your way to making your app and testing it on Reddit.
-
-Now vibe code away!
-
-### Known limitations
-
-- **Only test on your subreddit:** Your app's backend requests will not work on Bolt's preview window. You need to continue to test your app running in your subreddit, where your backend code will work.
-
-- **Use Reddit's backend:** Devvit provides a free of charge scalable backend. Bolt will be able to help you use Reddit's Redis database for key-value storage. You are not going to be able to use other tools such as Supabase for your backend.
-
-- **This is experimental:** While the Devvit team is working to make it as easy as possible to use Bolt for authoring Reddit apps, this is all still in an experimental phase. If you run into issues, please [join our Discord](https://discord.com/invite/Cd43ExtEFS) and ask your questions in **#devvit-vibe-coding**
+No external services or webviews are required.
