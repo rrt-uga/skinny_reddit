@@ -8,7 +8,7 @@
     "build": "npx devvit build",
     "dev": "npx devvit playtest vibepoem",
     "upload": "npx devvit upload",
-    "login": "npx devvit login",
+    "login": "npx devvit login --copy-paste",
     "check": "npm run type-check && npm run lint",
     "lint": "eslint ./src",
     "type-check": "tsc --noEmit"
