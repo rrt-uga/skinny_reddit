@@ -2,6 +2,10 @@
 
 A collaborative poetry creation app built for Reddit using Devvit. Community members work together throughout the day to create a unique "skinny poem" through voting and mood setting.
 
+## Bolt.new projects:
+1. https://bolt.new/~/github-pvvjyqz4 - Original Implementation and final deployment
+2. https://bolt.new/~/sb1-ccobttuh - Parallel development
+
 ## How It Works
 
 The app runs on a daily cycle with four phases:
