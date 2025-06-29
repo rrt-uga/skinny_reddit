@@ -5,10 +5,10 @@
   "license": "BSD-3-Clause",
   "type": "module",
   "scripts": {
-    "build": "devvit build",
-    "dev": "devvit playtest vibepoem",
-    "upload": "devvit upload",
-    "login": "devvit login",
+    "build": "npx devvit build",
+    "dev": "npx devvit playtest vibepoem",
+    "upload": "npx devvit upload",
+    "login": "npx devvit login",
     "check": "npm run type-check && npm run lint",
     "lint": "eslint ./src",
     "type-check": "tsc --noEmit"
