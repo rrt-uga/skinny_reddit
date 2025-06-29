@@ -222,12 +222,23 @@ const App: Devvit.CustomPostComponent = (context) => {
   const [poemState, setPoemState] = useState<PoemState | null>(null);
   const [loading, setLoading] = useState(true);
   const [userVotes, setUserVotes] = useState<Record<string, string>>({});
+  const [localMoodValues, setLocalMoodValues] = useState<Record<string, number>>({});
 
   // Load poem state
   const { data: stateData } = useAsync(async () => {
     const state = await getPoemState(redis);
     setPoemState(state);
     setLoading(false);
+    
+    // Initialize local mood values when state loads
+    if (state.phase === 'mood') {
+      const initialMoodValues: Record<string, number> = {};
+      MOOD_VARIABLES.forEach(name => {
+        initialMoodValues[name] = Math.round(state.moodVariables[name]?.value || 5);
+      });
+      setLocalMoodValues(initialMoodValues);
+    }
+    
     return state;
   });
 
@@ -253,6 +264,15 @@ const App: Devvit.CustomPostComponent = (context) => {
   useInterval(async () => {
     const state = await getPoemState(redis);
     setPoemState(state);
+    
+    // Update local mood values if we're in mood phase and haven't voted yet
+    if (state.phase === 'mood' && !userVotes.mood) {
+      const initialMoodValues: Record<string, number> = {};
+      MOOD_VARIABLES.forEach(name => {
+        initialMoodValues[name] = Math.round(state.moodVariables[name]?.value || 5);
+      });
+      setLocalMoodValues(initialMoodValues);
+    }
   }, 30000);
 
   const handleVote = async (voteType: string, optionId?: string, moodValues?: Record<string, number>) => {
@@ -347,6 +367,33 @@ const App: Devvit.CustomPostComponent = (context) => {
     setPoemState(newState);
     
     ui.showToast('Poem generated successfully!');
+  };
+
+  const updateMoodValue = (moodName: string, delta: number) => {
+    setLocalMoodValues(prev => ({
+      ...prev,
+      [moodName]: Math.max(1, Math.min(10, (prev[moodName] || 5) + delta))
+    }));
+  };
+
+  const getMoodDescription = (moodName: string, value: number) => {
+    const descriptions: Record<string, string[]> = {
+      melancholy: ['serene', 'wistful', 'deeply sad'],
+      joy: ['content', 'happy', 'euphoric'],
+      mystery: ['subtle', 'intriguing', 'enigmatic'],
+      passion: ['warm', 'intense', 'burning'],
+      serenity: ['calm', 'peaceful', 'transcendent'],
+      rebellion: ['questioning', 'defiant', 'revolutionary'],
+      nostalgia: ['reminiscent', 'longing', 'bittersweet'],
+      hope: ['optimistic', 'bright', 'radiant'],
+      darkness: ['shadowy', 'brooding', 'profound'],
+      whimsy: ['playful', 'quirky', 'fantastical']
+    };
+
+    const levels = descriptions[moodName] || ['mild', 'moderate', 'intense'];
+    if (value <= 3) return levels[0];
+    if (value <= 7) return levels[1];
+    return levels[2];
   };
 
   if (loading) {
@@ -481,35 +528,66 @@ const App: Devvit.CustomPostComponent = (context) => {
           </vstack>
         )}
 
-        {/* Mood Setting */}
+        {/* Interactive Mood Setting */}
         {poemState.phase === 'mood' && (
           <vstack gap="small">
             <text size="medium" color="#f5f5f5">
-              Set mood variables (1-10 scale):
+              Adjust mood variables (1-10 scale):
             </text>
-            {Object.entries(poemState.moodVariables).slice(0, 5).map(([name, variable]) => (
-              <hstack key={name} gap="medium" alignment="center middle">
-                <text size="small" color="white" width="80px">
-                  {name}:
-                </text>
-                <text size="small" color="#a0a0a0">
-                  {variable.value.toFixed(1)} ({variable.votes} votes)
-                </text>
-              </hstack>
-            ))}
+            <text size="small" color="#a0a0a0">
+              Use + and - buttons to set your preferred mood levels
+            </text>
+            
+            {MOOD_VARIABLES.map((moodName) => {
+              const variable = poemState.moodVariables[moodName];
+              const userValue = localMoodValues[moodName] || 5;
+              
+              return (
+                <vstack key={moodName} gap="small" backgroundColor="#2d2d44" padding="small" cornerRadius="small">
+                  <hstack alignment="center middle" gap="medium">
+                    <text size="medium" color="#f39c12" weight="bold" width="80px">
+                      {moodName}
+                    </text>
+                    <hstack gap="small" alignment="center middle">
+                      <button
+                        appearance="secondary"
+                        size="small"
+                        disabled={!!userVotes.mood || userValue <= 1}
+                        onPress={() => updateMoodValue(moodName, -1)}
+                      >
+                        -
+                      </button>
+                      <text size="large" color="white" weight="bold" width="30px" alignment="center">
+                        {userValue}
+                      </text>
+                      <button
+                        appearance="secondary"
+                        size="small"
+                        disabled={!!userVotes.mood || userValue >= 10}
+                        onPress={() => updateMoodValue(moodName, 1)}
+                      >
+                        +
+                      </button>
+                    </hstack>
+                  </hstack>
+                  <hstack gap="medium" alignment="center middle">
+                    <text size="small" color="#a0a0a0">
+                      {getMoodDescription(moodName, userValue)}
+                    </text>
+                    <text size="small" color="#666">
+                      Community avg: {variable.value.toFixed(1)} ({variable.votes} votes)
+                    </text>
+                  </hstack>
+                </vstack>
+              );
+            })}
+            
             {!userVotes.mood && (
               <button
                 appearance="primary"
-                onPress={() => {
-                  // Simulate mood voting with random values
-                  const moodValues: Record<string, number> = {};
-                  MOOD_VARIABLES.forEach(name => {
-                    moodValues[name] = Math.floor(Math.random() * 10) + 1;
-                  });
-                  handleVote('mood', undefined, moodValues);
-                }}
+                onPress={() => handleVote('mood', undefined, localMoodValues)}
               >
-                Submit Random Mood Settings
+                Submit Mood Settings
               </button>
             )}
             {userVotes.mood && (
