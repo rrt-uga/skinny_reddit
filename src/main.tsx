@@ -75,43 +75,59 @@ const MOOD_VARIABLES = [
 
 // Utility functions
 const getCurrentDay = (): string => {
-  return new Date().toISOString().split('T')[0];
+  const day = new Date().toISOString().split('T')[0];
+  console.log('Client: Current day:', day);
+  return day;
 };
 
 const getCurrentPhase = (): PoemPhase => {
   const now = new Date();
   const hour = now.getHours();
+  console.log('Client: Current hour:', hour);
   
-  if (hour >= 8 && hour < 12) return 'keyline';
-  if (hour >= 12 && hour < 16) return 'keyword';
-  if (hour >= 16 && hour < 20) return 'mood';
-  if (hour >= 20 && hour < 21) return 'generation';
-  return 'published';
+  let phase: PoemPhase;
+  if (hour >= 8 && hour < 12) phase = 'keyline';
+  else if (hour >= 12 && hour < 16) phase = 'keyword';
+  else if (hour >= 16 && hour < 20) phase = 'mood';
+  else if (hour >= 20 && hour < 21) phase = 'generation';
+  else phase = 'published';
+  
+  console.log('Client: Current phase:', phase);
+  return phase;
 };
 
 const getPhaseEndTime = (phase: PoemPhase): number => {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   
+  let endTime;
   switch (phase) {
-    case 'keyline': return today.getTime() + 12 * 60 * 60 * 1000;
-    case 'keyword': return today.getTime() + 16 * 60 * 60 * 1000;
-    case 'mood': return today.getTime() + 20 * 60 * 60 * 1000;
-    case 'generation': return today.getTime() + 21 * 60 * 60 * 1000;
-    default: return today.getTime() + 24 * 60 * 60 * 1000;
+    case 'keyline': endTime = today.getTime() + 12 * 60 * 60 * 1000; break;
+    case 'keyword': endTime = today.getTime() + 16 * 60 * 60 * 1000; break;
+    case 'mood': endTime = today.getTime() + 20 * 60 * 60 * 1000; break;
+    case 'generation': endTime = today.getTime() + 21 * 60 * 60 * 1000; break;
+    default: endTime = today.getTime() + 24 * 60 * 60 * 1000;
   }
+  
+  console.log('Client: Phase end time for', phase, ':', new Date(endTime).toISOString());
+  return endTime;
 };
 
 const generateKeyLineOptions = () => {
+  console.log('Client: Generating key line options');
   const shuffled = [...SAMPLE_KEY_LINES].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, 5).map((text, index) => ({
+  const options = shuffled.slice(0, 5).map((text, index) => ({
     id: `keyline_${index}`,
     text,
     votes: 0
   }));
+  console.log('Client: Generated key line options:', options);
+  return options;
 };
 
 const generateKeyWordOptions = (keyLine: string) => {
+  console.log('Client: Generating key word options from:', keyLine);
+  
   const words = keyLine.toLowerCase()
     .replace(/[^\w\s]/g, '')
     .split(' ')
@@ -124,15 +140,18 @@ const generateKeyWordOptions = (keyLine: string) => {
   ];
   
   const allWords = [...words, ...additionalWords].slice(0, 5);
-  
-  return allWords.map((text, index) => ({
+  const options = allWords.map((text, index) => ({
     id: `keyword_${index}`,
     text,
     votes: 0
   }));
+  
+  console.log('Client: Generated key word options:', options);
+  return options;
 };
 
 const initializeMoodVariables = () => {
+  console.log('Client: Initializing mood variables');
   const variables: Record<string, MoodVariable> = {};
   MOOD_VARIABLES.forEach(name => {
     variables[name] = {
@@ -141,10 +160,13 @@ const initializeMoodVariables = () => {
       votes: 0
     };
   });
+  console.log('Client: Initialized mood variables:', variables);
   return variables;
 };
 
 const generatePoem = (keyLine: string, keyWord: string, mood: Record<string, number>): SkinnyPoem => {
+  console.log('Client: Generating poem with keyLine:', keyLine, 'keyWord:', keyWord, 'mood:', JSON.stringify(mood, null, 2));
+  
   const usedWords = new Set<string>();
   
   const getRandomWord = (bank: string[]) => {
@@ -153,13 +175,14 @@ const generatePoem = (keyLine: string, keyWord: string, mood: Record<string, num
       word = bank[Math.floor(Math.random() * bank.length)];
     } while (usedWords.has(word));
     usedWords.add(word);
+    console.log('Client: Selected random word:', word);
     return word;
   };
   
   const punctuations = [',', '—', '-', ':', ';'];
   const randomPunct = () => punctuations[Math.floor(Math.random() * punctuations.length)];
   
-  return {
+  const poem = {
     keyLine: keyLine.replace(/[.,:;—-]$/, '') + randomPunct(),
     keyWord: keyWord + randomPunct(),
     line3: getRandomWord(WORD_BANKS.verbs),
@@ -171,38 +194,53 @@ const generatePoem = (keyLine: string, keyWord: string, mood: Record<string, num
     mood,
     createdAt: new Date().toISOString()
   };
+  
+  console.log('Client: Generated poem:', JSON.stringify(poem, null, 2));
+  return poem;
 };
 
 // Redis helper functions
 const getPoemState = async (redis: any): Promise<PoemState> => {
+  console.log('Client: Getting poem state from Redis');
+  
   const stored = await redis.get('poem_state');
+  console.log('Client: Raw stored state:', stored);
+  
   const currentDay = getCurrentDay();
   const currentPhase = getCurrentPhase();
   
   if (stored) {
     const state = JSON.parse(stored);
+    console.log('Client: Parsed stored state:', JSON.stringify(state, null, 2));
     
     if (state.currentDay !== currentDay) {
+      console.log('Client: Day changed, initializing new daily state');
       return initializeDailyState(currentDay, currentPhase);
     }
     
     if (state.phase !== currentPhase) {
+      console.log('Client: Phase changed from', state.phase, 'to', currentPhase);
       state.phase = currentPhase;
       state.phaseEndTime = getPhaseEndTime(currentPhase);
       
       if (currentPhase === 'keyword' && state.selectedKeyLine && state.keyWordOptions.length === 0) {
+        console.log('Client: Generating keyword options for selected key line:', state.selectedKeyLine);
         state.keyWordOptions = generateKeyWordOptions(state.selectedKeyLine);
       }
     }
     
+    console.log('Client: Final state to return:', JSON.stringify(state, null, 2));
     return state;
   }
   
+  console.log('Client: No stored state found, initializing new state');
   return initializeDailyState(currentDay, currentPhase);
 };
 
 const initializeDailyState = (currentDay: string, currentPhase: PoemPhase): PoemState => {
-  return {
+  console.log('Client: Initializing daily state for day:', currentDay, 'phase:', currentPhase);
+  
+  const state = {
     phase: currentPhase,
     currentDay,
     keyLineOptions: currentPhase === 'keyline' ? generateKeyLineOptions() : [],
@@ -210,10 +248,15 @@ const initializeDailyState = (currentDay: string, currentPhase: PoemPhase): Poem
     moodVariables: initializeMoodVariables(),
     phaseEndTime: getPhaseEndTime(currentPhase)
   };
+  
+  console.log('Client: Initialized daily state:', JSON.stringify(state, null, 2));
+  return state;
 };
 
 const savePoemState = async (redis: any, state: PoemState) => {
+  console.log('Client: Saving poem state to Redis:', JSON.stringify(state, null, 2));
   await redis.set('poem_state', JSON.stringify(state));
+  console.log('Client: Successfully saved poem state to Redis');
 };
 
 // Main App Component
@@ -224,18 +267,25 @@ const App: Devvit.CustomPostComponent = (context) => {
   const [userVotes, setUserVotes] = useState<Record<string, string>>({});
   const [localMoodValues, setLocalMoodValues] = useState<Record<string, number>>({});
 
+  console.log('Client: App component rendered with userId:', userId);
+
   // Load poem state
   const { data: stateData } = useAsync(async () => {
+    console.log('Client: Loading poem state asynchronously');
     const state = await getPoemState(redis);
+    console.log('Client: Poem state loaded:', JSON.stringify(state, null, 2));
+    
     setPoemState(state);
     setLoading(false);
     
     // Initialize local mood values when state loads
     if (state.phase === 'mood') {
+      console.log('Client: Initializing local mood values for mood phase');
       const initialMoodValues: Record<string, number> = {};
       MOOD_VARIABLES.forEach(name => {
         initialMoodValues[name] = Math.round(state.moodVariables[name]?.value || 5);
       });
+      console.log('Client: Initial mood values:', JSON.stringify(initialMoodValues, null, 2));
       setLocalMoodValues(initialMoodValues);
     }
     
@@ -244,29 +294,39 @@ const App: Devvit.CustomPostComponent = (context) => {
 
   // Load user votes
   useAsync(async () => {
-    if (!userId) return;
+    if (!userId) {
+      console.log('Client: No userId, skipping vote loading');
+      return;
+    }
     
+    console.log('Client: Loading user votes for userId:', userId);
     const currentDay = getCurrentDay();
     const votes: Record<string, string> = {};
     
     for (const voteType of ['keyline', 'keyword', 'mood']) {
       const voteKey = `vote:${currentDay}:${userId}:${voteType}`;
+      console.log('Client: Checking vote key:', voteKey);
       const vote = await redis.get(voteKey);
       if (vote) {
+        console.log(`Client: Found existing ${voteType} vote:`, vote);
         votes[voteType] = vote;
       }
     }
     
+    console.log('Client: All user votes loaded:', JSON.stringify(votes, null, 2));
     setUserVotes(votes);
   });
 
   // Auto-refresh every 30 seconds
   useInterval(async () => {
+    console.log('Client: Auto-refreshing poem state');
     const state = await getPoemState(redis);
+    console.log('Client: Auto-refresh - new state:', JSON.stringify(state, null, 2));
     setPoemState(state);
     
     // Update local mood values if we're in mood phase and haven't voted yet
     if (state.phase === 'mood' && !userVotes.mood) {
+      console.log('Client: Auto-refresh - updating local mood values');
       const initialMoodValues: Record<string, number> = {};
       MOOD_VARIABLES.forEach(name => {
         initialMoodValues[name] = Math.round(state.moodVariables[name]?.value || 5);
@@ -276,14 +336,20 @@ const App: Devvit.CustomPostComponent = (context) => {
   }, 30000);
 
   const handleVote = async (voteType: string, optionId?: string, moodValues?: Record<string, number>) => {
+    console.log('Client: Submitting vote:', voteType, 'optionId:', optionId, 'moodValues:', JSON.stringify(moodValues, null, 2));
+    
     if (!userId || !poemState) {
+      console.log('Client: Vote rejected - no userId or poemState');
       ui.showToast('Please log in to vote');
       return;
     }
 
     const currentDay = getCurrentDay();
     const voteKey = `vote:${currentDay}:${userId}:${voteType}`;
+    console.log('Client: Checking if user has already voted with key:', voteKey);
+    
     const hasVoted = await redis.get(voteKey);
+    console.log('Client: User has already voted:', !!hasVoted);
     
     if (hasVoted) {
       ui.showToast('You have already voted for this phase today');
@@ -291,27 +357,38 @@ const App: Devvit.CustomPostComponent = (context) => {
     }
 
     const newState = { ...poemState };
+    console.log('Client: Processing vote for new state');
 
     if (voteType === 'keyline' && optionId) {
+      console.log('Client: Processing keyline vote for option:', optionId);
       const option = newState.keyLineOptions.find(opt => opt.id === optionId);
       if (option) {
+        console.log('Client: Found option, incrementing votes from', option.votes, 'to', option.votes + 1);
         option.votes++;
         await redis.set(voteKey, optionId, { ex: 86400 });
         ui.showToast('Key line vote submitted!');
       }
     } else if (voteType === 'keyword' && optionId) {
+      console.log('Client: Processing keyword vote for option:', optionId);
       const option = newState.keyWordOptions.find(opt => opt.id === optionId);
       if (option) {
+        console.log('Client: Found option, incrementing votes from', option.votes, 'to', option.votes + 1);
         option.votes++;
         await redis.set(voteKey, optionId, { ex: 86400 });
         ui.showToast('Key word vote submitted!');
       }
     } else if (voteType === 'mood' && moodValues) {
+      console.log('Client: Processing mood vote with values:', JSON.stringify(moodValues, null, 2));
       Object.entries(moodValues).forEach(([moodName, value]) => {
         if (newState.moodVariables[moodName] && value >= 1 && value <= 10) {
           const currentTotal = newState.moodVariables[moodName].value * newState.moodVariables[moodName].votes;
+          const oldValue = newState.moodVariables[moodName].value;
+          const oldVotes = newState.moodVariables[moodName].votes;
+          
           newState.moodVariables[moodName].votes++;
           newState.moodVariables[moodName].value = (currentTotal + value) / newState.moodVariables[moodName].votes;
+          
+          console.log(`Client: Updated mood ${moodName}: ${oldValue} (${oldVotes} votes) -> ${newState.moodVariables[moodName].value} (${newState.moodVariables[moodName].votes} votes)`);
         }
       });
       await redis.set(voteKey, JSON.stringify(moodValues), { ex: 86400 });
@@ -319,32 +396,44 @@ const App: Devvit.CustomPostComponent = (context) => {
     }
 
     await savePoemState(redis, newState);
+    console.log('Client: Vote processed, updating state');
     setPoemState(newState);
     
     // Update user votes
-    setUserVotes(prev => ({ ...prev, [voteType]: optionId || 'voted' }));
+    const newUserVotes = { ...userVotes, [voteType]: optionId || 'voted' };
+    console.log('Client: Updated user votes:', JSON.stringify(newUserVotes, null, 2));
+    setUserVotes(newUserVotes);
   };
 
   const handleGenerate = async () => {
-    if (!poemState) return;
+    console.log('Client: Starting poem generation');
+    if (!poemState) {
+      console.log('Client: No poem state available for generation');
+      return;
+    }
 
     let selectedKeyLine = poemState.selectedKeyLine;
     if (!selectedKeyLine) {
+      console.log('Client: No selected key line, finding winner from options:', poemState.keyLineOptions);
       const winningKeyLine = poemState.keyLineOptions.reduce((prev, current) => 
         prev.votes > current.votes ? prev : current
       );
       selectedKeyLine = winningKeyLine?.text || poemState.keyLineOptions[0]?.text;
+      console.log('Client: Selected key line:', selectedKeyLine);
     }
 
     let selectedKeyWord = poemState.selectedKeyWord;
     if (!selectedKeyWord) {
+      console.log('Client: No selected key word, finding winner from options:', poemState.keyWordOptions);
       const winningKeyWord = poemState.keyWordOptions.reduce((prev, current) => 
         prev.votes > current.votes ? prev : current
       );
       selectedKeyWord = winningKeyWord?.text || poemState.keyWordOptions[0]?.text;
+      console.log('Client: Selected key word:', selectedKeyWord);
     }
 
     if (!selectedKeyLine || !selectedKeyWord) {
+      console.log('Client: Missing required elements - keyLine:', selectedKeyLine, 'keyWord:', selectedKeyWord);
       ui.showToast('Missing key line or key word');
       return;
     }
@@ -353,6 +442,7 @@ const App: Devvit.CustomPostComponent = (context) => {
     Object.entries(poemState.moodVariables).forEach(([name, variable]) => {
       moodValues[name] = variable.votes > 0 ? variable.value : Math.floor(Math.random() * 10) + 1;
     });
+    console.log('Client: Final mood values for poem:', JSON.stringify(moodValues, null, 2));
 
     const poem = generatePoem(selectedKeyLine, selectedKeyWord, moodValues);
 
@@ -362,17 +452,24 @@ const App: Devvit.CustomPostComponent = (context) => {
     newState.selectedKeyLine = selectedKeyLine;
     newState.selectedKeyWord = selectedKeyWord;
 
+    console.log('Client: Saving generated poem to Redis');
     await redis.set(`daily_poem:${getCurrentDay()}`, JSON.stringify(poem));
     await savePoemState(redis, newState);
+    
+    console.log('Client: Poem generation completed, updating state');
     setPoemState(newState);
     
     ui.showToast('Poem generated successfully!');
   };
 
   const updateMoodValue = (moodName: string, delta: number) => {
+    const oldValue = localMoodValues[moodName] || 5;
+    const newValue = Math.max(1, Math.min(10, oldValue + delta));
+    console.log(`Client: Updating mood ${moodName} from ${oldValue} to ${newValue} (delta: ${delta})`);
+    
     setLocalMoodValues(prev => ({
       ...prev,
-      [moodName]: Math.max(1, Math.min(10, (prev[moodName] || 5) + delta))
+      [moodName]: newValue
     }));
   };
 
@@ -397,6 +494,7 @@ const App: Devvit.CustomPostComponent = (context) => {
   };
 
   if (loading) {
+    console.log('Client: Rendering loading state');
     return (
       <vstack height="100%" width="100%" alignment="center middle" backgroundColor="#1a1a2e">
         <text size="large" color="white">Loading poem generator...</text>
@@ -405,12 +503,15 @@ const App: Devvit.CustomPostComponent = (context) => {
   }
 
   if (!poemState) {
+    console.log('Client: Rendering error state - no poem state');
     return (
       <vstack height="100%" width="100%" alignment="center middle" backgroundColor="#1a1a2e">
         <text size="large" color="white">Failed to load poem state</text>
       </vstack>
     );
   }
+
+  console.log('Client: Rendering main app with state:', JSON.stringify(poemState, null, 2));
 
   const getPhaseTitle = (phase: PoemPhase) => {
     switch (phase) {
@@ -438,6 +539,8 @@ const App: Devvit.CustomPostComponent = (context) => {
   const hours = Math.floor(timeLeft / (1000 * 60 * 60));
   const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
   const timeLeftText = timeLeft > 0 ? `${hours}h ${minutes}m remaining` : 'Phase ended';
+
+  console.log('Client: Time left calculation - timeLeft:', timeLeft, 'hours:', hours, 'minutes:', minutes);
 
   return (
     <vstack height="100%" width="100%" backgroundColor="#1a1a2e" padding="medium" gap="medium">
@@ -472,7 +575,10 @@ const App: Devvit.CustomPostComponent = (context) => {
                   appearance="primary"
                   size="small"
                   disabled={!!userVotes.keyline}
-                  onPress={() => handleVote('keyline', option.id)}
+                  onPress={() => {
+                    console.log('Client: Key line vote button pressed for option:', option.id);
+                    handleVote('keyline', option.id);
+                  }}
                 >
                   Vote
                 </button>
@@ -506,7 +612,10 @@ const App: Devvit.CustomPostComponent = (context) => {
                   appearance="primary"
                   size="small"
                   disabled={!!userVotes.keyword}
-                  onPress={() => handleVote('keyword', option.id)}
+                  onPress={() => {
+                    console.log('Client: Key word vote button pressed for option:', option.id);
+                    handleVote('keyword', option.id);
+                  }}
                 >
                   Vote
                 </button>
@@ -553,7 +662,10 @@ const App: Devvit.CustomPostComponent = (context) => {
                         appearance="secondary"
                         size="small"
                         disabled={!!userVotes.mood || userValue <= 1}
-                        onPress={() => updateMoodValue(moodName, -1)}
+                        onPress={() => {
+                          console.log('Client: Mood decrease button pressed for', moodName);
+                          updateMoodValue(moodName, -1);
+                        }}
                       >
                         -
                       </button>
@@ -564,7 +676,10 @@ const App: Devvit.CustomPostComponent = (context) => {
                         appearance="secondary"
                         size="small"
                         disabled={!!userVotes.mood || userValue >= 10}
-                        onPress={() => updateMoodValue(moodName, 1)}
+                        onPress={() => {
+                          console.log('Client: Mood increase button pressed for', moodName);
+                          updateMoodValue(moodName, 1);
+                        }}
                       >
                         +
                       </button>
@@ -585,7 +700,10 @@ const App: Devvit.CustomPostComponent = (context) => {
             {!userVotes.mood && (
               <button
                 appearance="primary"
-                onPress={() => handleVote('mood', undefined, localMoodValues)}
+                onPress={() => {
+                  console.log('Client: Submit mood settings button pressed');
+                  handleVote('mood', undefined, localMoodValues);
+                }}
               >
                 Submit Mood Settings
               </button>
@@ -609,7 +727,10 @@ const App: Devvit.CustomPostComponent = (context) => {
             </text>
             <button
               appearance="primary"
-              onPress={handleGenerate}
+              onPress={() => {
+                console.log('Client: Generate poem button pressed');
+                handleGenerate();
+              }}
             >
               Generate Poem Now
             </button>
@@ -680,10 +801,13 @@ Devvit.addMenuItem({
   location: 'subreddit',
   forUserType: 'moderator',
   onPress: async (_event, context) => {
+    console.log('Client: Create poem generator menu item pressed');
     const { reddit, ui } = context;
 
     try {
       const subreddit = await reddit.getCurrentSubreddit();
+      console.log('Client: Creating post in subreddit:', subreddit.name);
+      
       const post = await reddit.submitPost({
         title: 'Daily Skinny Poem Generator',
         subredditName: subreddit.name,
@@ -699,9 +823,12 @@ Devvit.addMenuItem({
         ),
       });
       
+      console.log('Client: Post created successfully:', post.url);
       ui.showToast({ text: 'Created poem generator post!' });
       ui.navigateTo(post.url);
     } catch (error) {
+      console.error('Client: Error creating post:', error);
+      console.error('Client: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       ui.showToast({ text: 'Error creating post!' });
     }
   },
