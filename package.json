@@ -5,15 +5,16 @@
   "license": "BSD-3-Clause",
   "type": "module",
   "scripts": {
-    "build": "npx devvit build",
+    "build": "npm run build:client && npx devvit build",
     "dev": "npx devvit playtest vibepoem",
-    "upload": "npx devvit upload",
+    "upload": "npm run build && npx devvit upload",
     "login": "npx devvit login --copy-paste",
     "check": "npm run type-check && npm run lint",
     "lint": "eslint ./src",
     "type-check": "tsc --noEmit",
     "dev:client": "cd src/client && npm run dev",
-    "build:client": "cd src/client && npm run build"
+    "build:client": "cd src/client && npm install && npm run build",
+    "setup:client": "cd src/client && npm install"
   },
   "dependencies": {
     "@devvit/public-api": "^0.11.17"
