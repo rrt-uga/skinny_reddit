@@ -58,15 +58,24 @@ const sendMessage = (message: any): Promise<any> => {
     pendingMessages.set(id, { resolve, reject });
     
     console.log('Client: Sending message to Devvit:', JSON.stringify(message, null, 2));
-    window.parent?.postMessage(message, '*');
     
-    // Timeout after 10 seconds
+    // Check if we're in a webview context
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage(message, '*');
+    } else {
+      console.warn('Client: Not in webview context, rejecting message');
+      pendingMessages.delete(id);
+      reject(new Error('Not in webview context'));
+      return;
+    }
+    
+    // Increased timeout to 30 seconds to give Devvit more time
     setTimeout(() => {
       if (pendingMessages.has(id)) {
         pendingMessages.delete(id);
         reject(new Error('Message timeout'));
       }
-    }, 10000);
+    }, 30000);
   });
 };
 
@@ -89,6 +98,7 @@ const App: React.FC = () => {
   const [userVotes, setUserVotes] = useState<Record<string, string>>({});
   const [localMoodValues, setLocalMoodValues] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   console.log('Client: App component rendered');
 
@@ -96,7 +106,9 @@ const App: React.FC = () => {
   useEffect(() => {
     const loadPoemState = async () => {
       try {
-        console.log('Client: Loading poem state');
+        console.log('Client: Loading poem state, attempt:', retryCount + 1);
+        setError(null);
+        
         const response = await sendMessage({ type: 'GET_POEM_STATE' });
         
         if (response.type === 'ERROR') {
@@ -118,18 +130,32 @@ const App: React.FC = () => {
         }
         
         setLoading(false);
+        setRetryCount(0);
       } catch (error) {
         console.error('Client: Error loading poem state:', error);
-        setError(error instanceof Error ? error.message : 'Failed to load poem state');
-        setLoading(false);
+        const errorMessage = error instanceof Error ? error.message : 'Failed to load poem state';
+        
+        // If it's a timeout and we haven't retried too many times, try again
+        if (errorMessage.includes('timeout') && retryCount < 3) {
+          console.log('Client: Retrying due to timeout, attempt:', retryCount + 1);
+          setRetryCount(prev => prev + 1);
+          setTimeout(() => {
+            loadPoemState();
+          }, 2000 * (retryCount + 1)); // Exponential backoff
+        } else {
+          setError(errorMessage);
+          setLoading(false);
+        }
       }
     };
 
     loadPoemState();
-  }, []);
+  }, [retryCount]);
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
+    if (loading || error) return;
+
     const interval = setInterval(async () => {
       try {
         console.log('Client: Auto-refreshing poem state');
@@ -151,11 +177,12 @@ const App: React.FC = () => {
         }
       } catch (error) {
         console.error('Client: Error during auto-refresh:', error);
+        // Don't show error for auto-refresh failures, just log them
       }
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [userVotes.mood]);
+  }, [userVotes.mood, loading, error]);
 
   const handleVote = async (voteType: string, optionId?: string, moodValues?: Record<string, number>) => {
     try {
@@ -228,6 +255,12 @@ const App: React.FC = () => {
     }
   };
 
+  const handleRetry = () => {
+    setLoading(true);
+    setError(null);
+    setRetryCount(0);
+  };
+
   const updateMoodValue = (moodName: string, delta: number) => {
     const oldValue = localMoodValues[moodName] || 5;
     const newValue = Math.max(1, Math.min(10, oldValue + delta));
@@ -265,7 +298,12 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="text-2xl font-bold text-red-400 mb-4">Skinny Poem Generator</div>
-          <div className="text-white">Loading poem generator...</div>
+          <div className="text-white mb-4">Loading poem generator...</div>
+          {retryCount > 0 && (
+            <div className="text-yellow-400 text-sm">
+              Retrying... (attempt {retryCount + 1}/4)
+            </div>
+          )}
         </div>
       </div>
     );
@@ -276,8 +314,17 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-2xl font-bold text-red-400 mb-4">Error</div>
-          <div className="text-white">{error}</div>
+          <div className="text-2xl font-bold text-red-400 mb-4">Connection Error</div>
+          <div className="text-white mb-4">{error}</div>
+          <button
+            onClick={handleRetry}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg"
+          >
+            Retry Connection
+          </button>
+          <div className="text-gray-400 text-sm mt-4">
+            Make sure you're viewing this in a Reddit post, not in the preview window.
+          </div>
         </div>
       </div>
     );
@@ -289,7 +336,13 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="text-2xl font-bold text-red-400 mb-4">Error</div>
-          <div className="text-white">Failed to load poem state</div>
+          <div className="text-white mb-4">Failed to load poem state</div>
+          <button
+            onClick={handleRetry}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );

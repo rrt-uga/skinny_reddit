@@ -42,18 +42,42 @@ Devvit.addCustomPostType({
         const { redis, userId } = context;
         console.log('Devvit: Processing message with userId:', userId);
         
+        // Always respond with messageId to prevent timeouts
+        const respondWithError = (message: string) => {
+          console.log('Devvit: Sending error response:', message);
+          context.ui.webView.postMessage('poem-generator', {
+            type: 'ERROR',
+            message,
+            messageId: msg.messageId
+          });
+        };
+
+        const respondWithSuccess = (data: any, message?: string) => {
+          console.log('Devvit: Sending success response');
+          context.ui.webView.postMessage('poem-generator', {
+            type: 'SUCCESS',
+            data,
+            message,
+            messageId: msg.messageId
+          });
+        };
+        
         switch (msg.type) {
           case 'GET_POEM_STATE': {
             console.log('Devvit: Getting poem state from Redis');
-            const state = await getPoemStateFromRedis(redis);
-            console.log('Devvit: Poem state fetched:', JSON.stringify(state, null, 2));
-            
-            context.ui.webView.postMessage('poem-generator', {
-              type: 'POEM_STATE_RESPONSE',
-              data: state,
-              messageId: msg.messageId
-            });
-            console.log('Devvit: Sent POEM_STATE_RESPONSE to webview');
+            try {
+              const state = await getPoemStateFromRedis(redis);
+              console.log('Devvit: Poem state fetched successfully');
+              
+              context.ui.webView.postMessage('poem-generator', {
+                type: 'POEM_STATE_RESPONSE',
+                data: state,
+                messageId: msg.messageId
+              });
+            } catch (error) {
+              console.error('Devvit: Error getting poem state:', error);
+              respondWithError('Failed to load poem state');
+            }
             break;
           }
           
@@ -62,33 +86,39 @@ Devvit.addCustomPostType({
             
             if (!userId) {
               console.log('Devvit: Vote rejected - user not logged in');
-              context.ui.webView.postMessage('poem-generator', {
-                type: 'ERROR',
-                message: 'Must be logged in to vote',
-                messageId: msg.messageId
-              });
+              respondWithError('Must be logged in to vote');
               return;
             }
             
-            const result = await handleVoteInRedis(redis, userId, msg.data);
-            console.log('Devvit: Vote result:', JSON.stringify(result, null, 2));
-            
-            context.ui.webView.postMessage('poem-generator', {
-              ...result,
-              messageId: msg.messageId
-            });
+            try {
+              const result = await handleVoteInRedis(redis, userId, msg.data);
+              console.log('Devvit: Vote result:', JSON.stringify(result, null, 2));
+              
+              context.ui.webView.postMessage('poem-generator', {
+                ...result,
+                messageId: msg.messageId
+              });
+            } catch (error) {
+              console.error('Devvit: Error processing vote:', error);
+              respondWithError('Failed to process vote');
+            }
             break;
           }
           
           case 'GENERATE_POEM': {
             console.log('Devvit: Processing poem generation request');
-            const result = await handlePoemGeneration(redis);
-            console.log('Devvit: Poem generation result:', JSON.stringify(result, null, 2));
-            
-            context.ui.webView.postMessage('poem-generator', {
-              ...result,
-              messageId: msg.messageId
-            });
+            try {
+              const result = await handlePoemGeneration(redis);
+              console.log('Devvit: Poem generation result:', JSON.stringify(result, null, 2));
+              
+              context.ui.webView.postMessage('poem-generator', {
+                ...result,
+                messageId: msg.messageId
+              });
+            } catch (error) {
+              console.error('Devvit: Error generating poem:', error);
+              respondWithError('Failed to generate poem');
+            }
             break;
           }
           
@@ -97,39 +127,36 @@ Devvit.addCustomPostType({
             
             if (!userId) {
               console.log('Devvit: Admin simulation rejected - user not logged in');
-              context.ui.webView.postMessage('poem-generator', {
-                type: 'ERROR',
-                message: 'Must be logged in',
-                messageId: msg.messageId
-              });
+              respondWithError('Must be logged in');
               return;
             }
             
-            const result = await handleAdminSimulation(redis);
-            console.log('Devvit: Admin simulation result:', JSON.stringify(result, null, 2));
-            
-            context.ui.webView.postMessage('poem-generator', {
-              ...result,
-              messageId: msg.messageId
-            });
+            try {
+              const result = await handleAdminSimulation(redis);
+              console.log('Devvit: Admin simulation result:', JSON.stringify(result, null, 2));
+              
+              context.ui.webView.postMessage('poem-generator', {
+                ...result,
+                messageId: msg.messageId
+              });
+            } catch (error) {
+              console.error('Devvit: Error in admin simulation:', error);
+              respondWithError('Failed to simulate phase');
+            }
             break;
           }
           
           default:
             console.log('Devvit: Unknown message type:', msg.type);
-            context.ui.webView.postMessage('poem-generator', {
-              type: 'ERROR',
-              message: 'Unknown message type',
-              messageId: msg.messageId
-            });
+            respondWithError('Unknown message type');
         }
       } catch (error) {
-        console.error('Devvit: Error handling webview message:', error);
+        console.error('Devvit: Unexpected error handling webview message:', error);
         console.error('Devvit: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
         
         context.ui.webView.postMessage('poem-generator', {
           type: 'ERROR',
-          message: error instanceof Error ? error.message : 'Unknown error',
+          message: 'Internal server error',
           messageId: msg.messageId
         });
       }
@@ -288,19 +315,29 @@ const initializeDailyState = (currentDay: string, currentPhase: string) => {
 const getPoemStateFromRedis = async (redis: any) => {
   try {
     console.log('Devvit: Getting poem state from Redis with key:', POEM_STATE_KEY);
-    const stored = await redis.get(POEM_STATE_KEY);
-    console.log('Devvit: Raw stored state:', stored);
+    
+    // Add timeout wrapper for Redis operations
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Redis operation timeout')), 10000);
+    });
+    
+    const redisPromise = redis.get(POEM_STATE_KEY);
+    const stored = await Promise.race([redisPromise, timeoutPromise]);
+    
+    console.log('Devvit: Raw stored state retrieved successfully');
     
     const currentDay = getCurrentDay();
     const currentPhase = getCurrentPhase();
     
     if (stored) {
       const state = JSON.parse(stored);
-      console.log('Devvit: Parsed stored state:', JSON.stringify(state, null, 2));
+      console.log('Devvit: Parsed stored state successfully');
       
       if (state.currentDay !== currentDay) {
         console.log('Devvit: Day changed, initializing new daily state');
-        return initializeDailyState(currentDay, currentPhase);
+        const newState = initializeDailyState(currentDay, currentPhase);
+        await savePoemStateToRedis(redis, newState);
+        return newState;
       }
       
       if (state.phase !== currentPhase) {
@@ -312,30 +349,46 @@ const getPoemStateFromRedis = async (redis: any) => {
           console.log('Devvit: Generating keyword options for selected key line:', state.selectedKeyLine);
           state.keyWordOptions = generateKeyWordOptions(state.selectedKeyLine);
         }
+        
+        await savePoemStateToRedis(redis, state);
       }
       
-      console.log('Devvit: Final state to return:', JSON.stringify(state, null, 2));
+      console.log('Devvit: Final state prepared successfully');
       return state;
     }
     
     console.log('Devvit: No stored state found, initializing new state');
-    return initializeDailyState(currentDay, currentPhase);
+    const newState = initializeDailyState(currentDay, currentPhase);
+    await savePoemStateToRedis(redis, newState);
+    return newState;
   } catch (error) {
     console.error('Devvit: Error getting poem state from Redis:', error);
     console.error('Devvit: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
-    return initializeDailyState(getCurrentDay(), getCurrentPhase());
+    
+    // Return a basic state if Redis fails
+    const fallbackState = initializeDailyState(getCurrentDay(), getCurrentPhase());
+    console.log('Devvit: Returning fallback state due to Redis error');
+    return fallbackState;
   }
 };
 
 const savePoemStateToRedis = async (redis: any, state: any) => {
   try {
-    console.log('Devvit: Saving poem state to Redis:', JSON.stringify(state, null, 2));
-    await redis.set(POEM_STATE_KEY, JSON.stringify(state));
+    console.log('Devvit: Saving poem state to Redis');
+    
+    // Add timeout wrapper for Redis operations
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Redis save timeout')), 5000);
+    });
+    
+    const redisPromise = redis.set(POEM_STATE_KEY, JSON.stringify(state));
+    await Promise.race([redisPromise, timeoutPromise]);
+    
     console.log('Devvit: Successfully saved poem state to Redis');
   } catch (error) {
     console.error('Devvit: Error saving poem state to Redis:', error);
     console.error('Devvit: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
-    throw error;
+    // Don't throw here - let the operation continue even if save fails
   }
 };
 
